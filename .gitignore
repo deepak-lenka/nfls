@@ -20,28 +20,28 @@ wheels/
 .installed.cfg
 *.egg
 
-# Environment variables and secrets
+# Virtual Environment
 .env
-*.env
-.env.*
-config.ini
-secrets.json
+.venv
+env/
+venv/
+ENV/
 
-# IDE specific files
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-.DS_Store
 
-# Virtual Environment
-venv/
-ENV/
-env/
-.venv/
-
-# Local development
+# Logs
 *.log
-.coverage
-htmlcov/
-.pytest_cache/
+nfl_analysis.log
+
+# Local configuration
+.env
+.env.*
+config.local.py
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,104 +1,90 @@
-from crewai import Crew
-from .tasks.task_definitions import NFLAnalysisTasks
-from .utils.data_scraper import NFLDataScraper
-from typing import Dict
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from dotenv import load_dotenv
-import os
+from crewai import Agent, Task, Crew, Process
+from src.core.config import AGENT_CONFIG, OPENAI_API_KEY
+from src.utils.data_scraper import NFLDataScraper
+from src.tasks.task_definitions import create_analysis_tasks
+from src.agents import (
+    PerformanceAnalysisAgent,
+    InjuryAnalysisAgent,
+    MatchupAnalysisAgent,
+    WeatherAnalysisAgent,
+    LocationAnalysisAgent
+)
 
 class NFLAnalysisSystem:
+    """Main class for NFL game analysis system"""
+    
     def __init__(self):
         self.data_scraper = NFLDataScraper()
-        self.task_id = 5
+        self.agents = {}
+        
+    def create_agents(self):
+        """Create and configure analysis agents"""
+        # Initialize agents
+        performance_agent = PerformanceAnalysisAgent()
+        injury_agent = InjuryAnalysisAgent()
+        location_agent = LocationAnalysisAgent()
+        matchup_agent = MatchupAnalysisAgent()
+        weather_agent = WeatherAnalysisAgent()
+        
+        # Store agents by name
+        self.agents = {
+            "Performance Analysis Expert": performance_agent,
+            "Injury Impact Analyst": injury_agent,
+            "Location Impact Analyst": location_agent,
+            "Matchup Analysis Specialist": matchup_agent,
+            "Weather Impact Analyst": weather_agent
+        }
+        
+        return list(self.agents.values())
 
-    def analyze_game(self) -> str:
-        # Header information
-        output = [
-            f"Task ID: {self.task_id}",
-            f"Task: Who will win the NFL Game on Sun, Dec 15, Jets vs Jaguars?",
-            f"\nTotal AI Agents: 8",
-            "\nFactors Evaluated by AI Agents:"
-        ]
-
-        # 1. Gather raw data
-        game_data = self.data_scraper.get_game_data()
-
-        # 2. Create tasks for all agents
-        tasks = NFLAnalysisTasks.create_all_tasks(game_data)
-
-        # 3. Create and run crew
+    def analyze_game(self, team1, team2, game_date):
+        """
+        Analyze an NFL game and predict the outcome
+        
+        Args:
+            team1 (str): Name of the first team
+            team2 (str): Name of the second team
+            game_date (str): Date of the game (YYYY-MM-DD)
+            
+        Returns:
+            dict: Analysis results including predictions and insights
+        """
+        # Create agents
+        agents = self.create_agents()
+        
+        # Create tasks with agents
+        tasks = create_analysis_tasks(self.agents, team1, team2, game_date)
+        
+        # Create crew
         crew = Crew(
+            agents=agents,
             tasks=tasks,
-            agents=[task.agent for task in tasks],
+            process=Process.sequential,
             verbose=True
         )
+        
+        # Execute analysis
+        result = crew.kickoff()
+        
+        return result
 
-        # 4. Get results from all agents
-        results = crew.kickoff()
-        
-        # Process each agent's findings
-        for i, (agent_name, findings) in enumerate(results.items(), 1):
-            output.extend(self.format_agent_findings(i, findings))
-
-        return "\n".join(output)
-
-    def format_agent_findings(self, agent_num: int, findings: Dict) -> list:
-        """Format each agent's findings as shown in screenshot"""
-        output = []
-        
-        # Format exactly as shown in screenshot
-        output.append(f"\n- Agent {agent_num}: {findings.get('task', '')}")
-        
-        if 'findings' in findings:
-            output.append("\nTask: " + findings['task'])
-            output.append("Role: " + findings['role'])
-            output.append("Priority: " + findings['priority'])
-            output.append("\nKey Findings:")
-            output.extend(findings['findings'])
-
-        return output
-
-    def generate_analysis_overview(self, all_results: Dict) -> str:
-        """Generate comprehensive analysis based on all agents' findings"""
-        # Collect key findings from all agents
-        performance_data = all_results.get('performance', {})
-        injury_data = all_results.get('injuries', {})
-        weather_data = all_results.get('weather', {})
-        matchup_data = all_results.get('matchup', {})
-        coaching_data = all_results.get('coaching', {})
-        
-        # Combine all insights to generate overall analysis
-        analysis_points = []
-        
-        # Add performance insights
-        if performance_data:
-            analysis_points.extend(performance_data.get('key_findings', []))
-            
-        # Add injury impact
-        if injury_data:
-            analysis_points.extend(injury_data.get('key_findings', []))
-            
-        # Add weather considerations
-        if weather_data:
-            analysis_points.extend(weather_data.get('impact_factors', []))
-            
-        # Add historical matchup insights
-        if matchup_data:
-            analysis_points.extend(matchup_data.get('key_trends', []))
-            
-        # Add coaching strategy insights
-        if coaching_data:
-            analysis_points.extend(coaching_data.get('strategic_factors', []))
-        
-        # Combine all insights into a coherent analysis
-        overview = "Based on comprehensive analysis from all agents:\n\n"
-        for point in analysis_points:
-            overview += f"- {point}\n"
-            
-        return overview
+def main():
+    # Initialize the system
+    nfl_system = NFLAnalysisSystem()
+    
+    # Example usage
+    result = nfl_system.analyze_game(
+        team1="New York Jets",
+        team2="Jacksonville Jaguars",
+        game_date="2024-12-15"
+    )
+    
+    # Display results
+    print(f"Task ID: {result.get('task_id')}")
+    print(f"Analysis: {result.get('analysis')}")
+    print(f"Probability Score: {result.get('probability_score')}")
+    print(f"Key Insights: {result.get('insights')}")
+    print(f"Thematic Breakdown: {result.get('thematic_breakdown')}")
 
 if __name__ == "__main__":
-    system = NFLAnalysisSystem()
-    result = system.analyze_game()
-    print(result)
+    main()
