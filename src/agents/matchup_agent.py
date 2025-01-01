@@ -2,6 +2,7 @@ from crewai import Agent
 from typing import Dict, List
 from src.utils.data_scraper import NFLDataScraper
 from pydantic import Field, ConfigDict
+import math
 
 class MatchupAnalysisAgent(Agent):
     """Agent for analyzing team matchups and historical performance"""
@@ -55,187 +56,223 @@ class MatchupAnalysisAgent(Agent):
             'defensive_analysis': defensive_analysis,
             'advantages': advantages,
             'historical_analysis': historical_analysis,
-            'matchup_score': self._calculate_matchup_score(advantages, historical_analysis)
+            'matchup_score': self._calculate_matchup_score(offensive_analysis, defensive_analysis, historical_analysis)
         }
     
     def _analyze_offensive_matchup(self, team1_games: List[Dict], team2_games: List[Dict]) -> Dict:
         """Analyze offensive matchup between teams"""
-        team1_offense = self._calculate_offensive_metrics(team1_games)
-        team2_offense = self._calculate_offensive_metrics(team2_games)
+        if not team1_games or not team2_games:
+            return {}
+            
+        # Calculate offensive metrics for both teams
+        team1_metrics = {
+            'points': sum(g['points_scored'] for g in team1_games) / len(team1_games),
+            'total_yards': sum(g['total_yards'] for g in team1_games) / len(team1_games),
+            'pass_yards': sum(g['passing_yards'] for g in team1_games) / len(team1_games),
+            'rush_yards': sum(g['rushing_yards'] for g in team1_games) / len(team1_games),
+            'third_down': sum(g['third_down_conv'] for g in team1_games) / len(team1_games),
+            'red_zone': sum(g['red_zone_conversions'] for g in team1_games) / max(1, sum(g['red_zone_attempts'] for g in team1_games))
+        }
+        
+        team2_metrics = {
+            'points': sum(g['points_scored'] for g in team2_games) / len(team2_games),
+            'total_yards': sum(g['total_yards'] for g in team2_games) / len(team2_games),
+            'pass_yards': sum(g['passing_yards'] for g in team2_games) / len(team2_games),
+            'rush_yards': sum(g['rushing_yards'] for g in team2_games) / len(team2_games),
+            'third_down': sum(g['third_down_conv'] for g in team2_games) / len(team2_games),
+            'red_zone': sum(g['red_zone_conversions'] for g in team2_games) / max(1, sum(g['red_zone_attempts'] for g in team2_games))
+        }
+        
+        # Calculate differentials
+        differentials = {
+            'points': round(team1_metrics['points'] - team2_metrics['points'], 1),
+            'total_yards': round(team1_metrics['total_yards'] - team2_metrics['total_yards'], 1),
+            'pass_yards': round(team1_metrics['pass_yards'] - team2_metrics['pass_yards'], 1),
+            'rush_yards': round(team1_metrics['rush_yards'] - team2_metrics['rush_yards'], 1),
+            'third_down': round((team1_metrics['third_down'] - team2_metrics['third_down']) * 100, 1),
+            'red_zone': round((team1_metrics['red_zone'] - team2_metrics['red_zone']) * 100, 1)
+        }
         
         return {
-            'team1': {
-                'metrics': team1_offense,
-                'strengths': self._identify_offensive_strengths(team1_offense),
-                'weaknesses': self._identify_offensive_weaknesses(team1_offense)
-            },
-            'team2': {
-                'metrics': team2_offense,
-                'strengths': self._identify_offensive_strengths(team2_offense),
-                'weaknesses': self._identify_offensive_weaknesses(team2_offense)
-            }
+            'team1_metrics': {k: round(v, 1) for k, v in team1_metrics.items()},
+            'team2_metrics': {k: round(v, 1) for k, v in team2_metrics.items()},
+            'differentials': differentials,
+            'offensive_score': self._calculate_offensive_score(differentials)
         }
-    
+        
     def _analyze_defensive_matchup(self, team1_games: List[Dict], team2_games: List[Dict]) -> Dict:
         """Analyze defensive matchup between teams"""
-        team1_defense = self._calculate_defensive_metrics(team1_games)
-        team2_defense = self._calculate_defensive_metrics(team2_games)
+        if not team1_games or not team2_games:
+            return {}
+            
+        # Calculate defensive metrics for both teams
+        team1_metrics = {
+            'points_allowed': sum(g['points_allowed'] for g in team1_games) / len(team1_games),
+            'sacks': sum(g['sacks'] for g in team1_games) / len(team1_games),
+            'interceptions': sum(g['interceptions'] for g in team1_games) / len(team1_games),
+            'turnovers': sum(g['turnovers'] for g in team1_games) / len(team1_games)
+        }
+        
+        team2_metrics = {
+            'points_allowed': sum(g['points_allowed'] for g in team2_games) / len(team2_games),
+            'sacks': sum(g['sacks'] for g in team2_games) / len(team2_games),
+            'interceptions': sum(g['interceptions'] for g in team2_games) / len(team2_games),
+            'turnovers': sum(g['turnovers'] for g in team2_games) / len(team2_games)
+        }
+        
+        # Calculate differentials (positive means team1 is better defensively)
+        differentials = {
+            'points_allowed': round(team2_metrics['points_allowed'] - team1_metrics['points_allowed'], 1),
+            'sacks': round(team1_metrics['sacks'] - team2_metrics['sacks'], 1),
+            'interceptions': round(team1_metrics['interceptions'] - team2_metrics['interceptions'], 1),
+            'turnovers': round(team1_metrics['turnovers'] - team2_metrics['turnovers'], 1)
+        }
         
         return {
-            'team1': {
-                'metrics': team1_defense,
-                'strengths': self._identify_defensive_strengths(team1_defense),
-                'weaknesses': self._identify_defensive_weaknesses(team1_defense)
-            },
-            'team2': {
-                'metrics': team2_defense,
-                'strengths': self._identify_defensive_strengths(team2_defense),
-                'weaknesses': self._identify_defensive_weaknesses(team2_defense)
-            }
+            'team1_metrics': {k: round(v, 1) for k, v in team1_metrics.items()},
+            'team2_metrics': {k: round(v, 1) for k, v in team2_metrics.items()},
+            'differentials': differentials,
+            'defensive_score': self._calculate_defensive_score(differentials)
         }
-    
+        
     def _calculate_advantages(self, offensive_analysis: Dict, defensive_analysis: Dict) -> Dict:
-        """Calculate matchup advantages for each team"""
+        """Calculate team advantages based on matchup analysis"""
         advantages = {
             'team1': [],
             'team2': []
         }
         
-        # Compare offensive strengths vs defensive weaknesses
-        self._compare_offense_vs_defense(
-            offensive_analysis['team1']['strengths'],
-            defensive_analysis['team2']['weaknesses'],
-            advantages['team1']
-        )
-        
-        self._compare_offense_vs_defense(
-            offensive_analysis['team2']['strengths'],
-            defensive_analysis['team1']['weaknesses'],
-            advantages['team2']
-        )
+        # Offensive advantages
+        off_diff = offensive_analysis.get('differentials', {})
+        if off_diff.get('points', 0) > 3:
+            advantages['team1'].append('Scoring')
+        elif off_diff.get('points', 0) < -3:
+            advantages['team2'].append('Scoring')
+            
+        if off_diff.get('pass_yards', 0) > 30:
+            advantages['team1'].append('Passing game')
+        elif off_diff.get('pass_yards', 0) < -30:
+            advantages['team2'].append('Passing game')
+            
+        if off_diff.get('rush_yards', 0) > 30:
+            advantages['team1'].append('Running game')
+        elif off_diff.get('rush_yards', 0) < -30:
+            advantages['team2'].append('Running game')
+            
+        # Defensive advantages
+        def_diff = defensive_analysis.get('differentials', {})
+        if def_diff.get('points_allowed', 0) > 3:
+            advantages['team1'].append('Defense')
+        elif def_diff.get('points_allowed', 0) < -3:
+            advantages['team2'].append('Defense')
+            
+        if def_diff.get('turnovers', 0) > 0.5:
+            advantages['team1'].append('Turnover creation')
+        elif def_diff.get('turnovers', 0) < -0.5:
+            advantages['team2'].append('Turnover creation')
         
         return advantages
-    
-    def _analyze_historical_trends(self, matchups: List[Dict]) -> Dict:
+        
+    def _analyze_historical_trends(self, historical_matchups: List[Dict]) -> Dict:
         """Analyze historical matchup trends"""
-        if not matchups:
+        if not historical_matchups:
             return {
-                'head_to_head_record': {'wins': 0, 'losses': 0},
-                'average_point_differential': 0,
-                'trends': [],
-                'notable_factors': []
+                'total_games': 0,
+                'team1_wins': 0,
+                'team2_wins': 0,
+                'avg_point_diff': 0,
+                'recent_trend': 'No historical data'
             }
+            
+        team1_wins = sum(1 for game in historical_matchups if game['winner'] == 'team1')
+        team2_wins = sum(1 for game in historical_matchups if game['winner'] == 'team2')
+        point_diffs = [game['point_differential'] for game in historical_matchups]
         
-        team1_wins = sum(1 for game in matchups if game['winner'] == game['team1'])
-        total_diff = sum(game['team1_score'] - game['team2_score'] for game in matchups)
+        # Analyze recent trend (last 3 games)
+        recent_games = historical_matchups[-3:]
+        recent_wins = sum(1 for game in recent_games if game['winner'] == 'team1')
         
-        trends = []
-        if len(matchups) >= 3:
-            recent_games = matchups[-3:]
-            if all(game['winner'] == game['team1'] for game in recent_games):
-                trends.append("Team 1 has won last 3 matchups")
-            elif all(game['winner'] == game['team2'] for game in recent_games):
-                trends.append("Team 2 has won last 3 matchups")
+        if recent_wins >= 2:
+            trend = 'Team 1 dominant'
+        elif recent_wins <= 1:
+            trend = 'Team 2 dominant'
+        else:
+            trend = 'Evenly matched'
         
         return {
-            'head_to_head_record': {
-                'wins': team1_wins,
-                'losses': len(matchups) - team1_wins
-            },
-            'average_point_differential': total_diff / len(matchups),
-            'trends': trends,
-            'notable_factors': self._identify_notable_factors(matchups)
+            'total_games': len(historical_matchups),
+            'team1_wins': team1_wins,
+            'team2_wins': team2_wins,
+            'win_percentage': round(team1_wins / len(historical_matchups) * 100, 1),
+            'avg_point_diff': round(sum(point_diffs) / len(historical_matchups), 1),
+            'recent_trend': trend
         }
-    
-    def _calculate_matchup_score(self, advantages: Dict, historical: Dict) -> float:
-        """Calculate overall matchup score (-1 to 1, positive favors team1)"""
-        score = 0.0
         
-        # Advantage score (60% weight)
-        advantage_score = (len(advantages['team1']) - len(advantages['team2'])) * 0.2
-        score += advantage_score * 0.6
+    def _calculate_offensive_score(self, differentials: Dict) -> float:
+        """Calculate offensive advantage score (-100 to 100)"""
+        weights = {
+            'points': 0.3,
+            'total_yards': 0.2,
+            'pass_yards': 0.15,
+            'rush_yards': 0.15,
+            'third_down': 0.1,
+            'red_zone': 0.1
+        }
         
-        # Historical score (40% weight)
-        if historical['head_to_head_record']['wins'] + historical['head_to_head_record']['losses'] > 0:
-            win_rate = historical['head_to_head_record']['wins'] / (
-                historical['head_to_head_record']['wins'] + historical['head_to_head_record']['losses']
-            )
-            historical_score = (win_rate - 0.5) * 2  # Convert to -1 to 1 scale
-            score += historical_score * 0.4
+        score = 0
+        for metric, weight in weights.items():
+            if metric in differentials:
+                normalized_diff = differentials[metric] / (100 if 'yards' in metric else 20)
+                score += normalized_diff * weight * 100
+                
+        return round(max(-100, min(100, score)), 1)
         
-        return max(-1.0, min(1.0, score))  # Clamp between -1 and 1
-    
-    def _calculate_offensive_metrics(self, games: List[Dict]) -> Dict:
-        """Calculate offensive metrics from game data"""
+    def _calculate_defensive_score(self, differentials: Dict) -> float:
+        """Calculate defensive advantage score (-100 to 100)"""
+        weights = {
+            'points_allowed': 0.4,
+            'sacks': 0.2,
+            'interceptions': 0.2,
+            'turnovers': 0.2
+        }
+        
+        score = 0
+        for metric, weight in weights.items():
+            if metric in differentials:
+                normalized_diff = differentials[metric] / (20 if metric == 'points_allowed' else 2)
+                score += normalized_diff * weight * 100
+                
+        return round(max(-100, min(100, score)), 1)
+        
+    def _calculate_matchup_score(self, offensive_analysis: Dict, defensive_analysis: Dict, historical_analysis: Dict) -> Dict:
+        """Calculate overall matchup score and win probability"""
+        # Get component scores
+        offensive_score = offensive_analysis.get('offensive_score', 0)
+        defensive_score = defensive_analysis.get('defensive_score', 0)
+        
+        # Calculate historical weight
+        historical_games = historical_analysis.get('total_games', 0)
+        historical_weight = min(0.2, historical_games * 0.02)  # Max 20% weight for historical data
+        
+        # Calculate historical score
+        historical_score = 0
+        if historical_games > 0:
+            win_pct = historical_analysis.get('win_percentage', 50)
+            point_diff = historical_analysis.get('avg_point_diff', 0)
+            historical_score = (win_pct - 50) + point_diff * 2
+        
+        # Calculate composite score
+        composite_score = (
+            offensive_score * 0.4 +
+            defensive_score * 0.4 +
+            historical_score * historical_weight
+        ) / (0.8 + historical_weight)
+        
+        # Convert to win probability (logistic function)
+        win_probability = 1 / (1 + math.exp(-composite_score/30)) * 100
+        
         return {
-            'avg_points': sum(game['points_scored'] for game in games) / len(games),
-            'avg_yards': sum(game['total_yards'] for game in games) / len(games),
-            'third_down_rate': sum(game['third_down_conv'] for game in games) / len(games)
+            'composite_score': round(composite_score, 1),
+            'win_probability': round(win_probability, 1),
+            'confidence': round(min(abs(composite_score), 100), 1)
         }
-    
-    def _calculate_defensive_metrics(self, games: List[Dict]) -> Dict:
-        """Calculate defensive metrics from game data"""
-        return {
-            'avg_points_allowed': sum(game['points_allowed'] for game in games) / len(games),
-            'avg_yards_allowed': sum(game['total_yards'] for game in games) / len(games),
-            'third_down_stop_rate': 1 - sum(game['third_down_conv'] for game in games) / len(games)
-        }
-    
-    def _identify_offensive_strengths(self, metrics: Dict) -> List[str]:
-        """Identify strengths of a team's offense"""
-        strengths = []
-        if metrics['avg_points'] > 25:
-            strengths.append('high scoring')
-        if metrics['avg_yards'] > 350:
-            strengths.append('high yardage')
-        if metrics['third_down_rate'] > 0.4:
-            strengths.append('third down efficiency')
-        return strengths
-    
-    def _identify_offensive_weaknesses(self, metrics: Dict) -> List[str]:
-        """Identify weaknesses of a team's offense"""
-        weaknesses = []
-        if metrics['avg_points'] < 15:
-            weaknesses.append('low scoring')
-        if metrics['avg_yards'] < 250:
-            weaknesses.append('low yardage')
-        if metrics['third_down_rate'] < 0.3:
-            weaknesses.append('third down inefficiency')
-        return weaknesses
-    
-    def _identify_defensive_strengths(self, metrics: Dict) -> List[str]:
-        """Identify strengths of a team's defense"""
-        strengths = []
-        if metrics['avg_points_allowed'] < 15:
-            strengths.append('low points allowed')
-        if metrics['avg_yards_allowed'] < 250:
-            strengths.append('low yardage allowed')
-        if metrics['third_down_stop_rate'] > 0.6:
-            strengths.append('third down stops')
-        return strengths
-    
-    def _identify_defensive_weaknesses(self, metrics: Dict) -> List[str]:
-        """Identify weaknesses of a team's defense"""
-        weaknesses = []
-        if metrics['avg_points_allowed'] > 25:
-            weaknesses.append('high points allowed')
-        if metrics['avg_yards_allowed'] > 350:
-            weaknesses.append('high yardage allowed')
-        if metrics['third_down_stop_rate'] < 0.4:
-            weaknesses.append('third down inefficiency')
-        return weaknesses
-    
-    def _compare_offense_vs_defense(self, offense: List[str], defense: List[str], advantages: List[str]) -> None:
-        """Compare offense strengths vs defense weaknesses"""
-        for strength in offense:
-            if strength in defense:
-                advantages.append(strength)
-    
-    def _identify_notable_factors(self, matchups: List[Dict]) -> List[str]:
-        """Identify notable factors in historical matchups"""
-        notable_factors = []
-        if any(game['weather'] == 'rain' for game in matchups):
-            notable_factors.append('rain')
-        if any(game['weather'] == 'snow' for game in matchups):
-            notable_factors.append('snow')
-        return notable_factors
