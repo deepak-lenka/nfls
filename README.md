@@ -129,24 +129,6 @@ nfls/
 └── .env                # Environment variables
 ```
 
-## Evaluation Criteria
-
-1. **Data Accuracy**
-   - Metrics: Percentage of correctly scraped data points and the consistency of processed insights.
-   - Benchmarks: At least 95% data accuracy from validated sources.
-
-2. **System Implementation**
-   - Metrics: Execution speed, fault tolerance, and scalability of the multi-agent system.
-   - Benchmarks: The system should handle 100+ concurrent tasks without performance degradation.
-
-3. **Code Quality**
-   - Metrics: Adherence to PEP8 standards (for Python) and overall readability.
-   - Benchmarks: Modular, well-documented code with unit tests covering at least 80% of the system.
-
-4. **Innovation**
-   - Metrics: Novelty and impact of implemented techniques like RAG, DAGs, or vector stores.
-   - Benchmarks: Demonstrated improvements in system functionality or performance due to these advanced techniques.
-
 ## Troubleshooting
 
 ### Common Issues
